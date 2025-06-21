@@ -1,0 +1,1 @@
+# This file makes the 'text2sql-api' directory a Python package. 

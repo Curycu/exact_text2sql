@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+sqlalchemy
+python-dotenv
+chromadb
+sentence-transformers
+uvloop
+httptools
+pydantic
+python-multipart 

@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text2SQL 질의 시스템</title>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f0f2f5;
+            color: #1c1e21;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 1rem;
+            box-sizing: border-box;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: #fff;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            font-size: 1.5rem;
+            color: #333;
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+        .input-group {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+        #query-input {
+            flex-grow: 1;
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+        #submit-btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            background-color: #007bff;
+            color: white;
+            border-radius: 6px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        #submit-btn:hover {
+            background-color: #0056b3;
+        }
+        .result-area, .add-form-area {
+            border-top: 1px solid #eee;
+            padding-top: 1.5rem;
+            margin-top: 1.5rem;
+        }
+        #result-display {
+            min-height: 100px;
+            background-color: #f8f9fa;
+            padding: 1rem;
+            border-radius: 6px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            overflow-x: auto;
+        }
+        #download-buttons {
+            display: none; /* Initially hidden */
+            text-align: right;
+            margin-top: 1rem;
+        }
+        #csv-download-btn {
+            background-color: #17a2b8;
+            color: white;
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .add-form-container {
+            display: none;
+            background-color: #f8f9fa;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+        }
+        .add-form-container h2 {
+            margin-top: 0;
+            font-size: 1.2rem;
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        .form-group input, .form-group textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+        #toggle-add-form-btn {
+             background: none;
+             border: 1px solid #007bff;
+             color: #007bff;
+             padding: 0.5rem 1rem;
+             border-radius: 6px;
+             cursor: pointer;
+        }
+        .form-toggle-wrapper {
+            text-align: right;
+            margin-bottom: 1rem;
+        }
+        .btn-submit {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            background-color: #28a745;
+            color: white;
+            border-radius: 6px;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Text2SQL 질의 시스템</h1>
+        
+        <div class="input-group">
+            <input type="text" id="query-input" placeholder="질문을 입력하세요 (예: 지난달 최고 매출 상품은?)">
+            <button id="submit-btn">질의</button>
+        </div>
+
+        <div class="result-area">
+            <h3>결과</h3>
+            <div id="result-display">
+                <p>결과가 여기에 표시됩니다.</p>
+            </div>
+            <div id="download-buttons">
+                <button id="csv-download-btn">CSV 다운로드</button>
+            </div>
+        </div>
+
+        <div class="add-form-area">
+            <div class="form-toggle-wrapper">
+                <button id="toggle-add-form-btn">새로운 정답셋 추가하기</button>
+            </div>
+            <div class="add-form-container">
+                <h2>새로운 정답셋 추가</h2>
+                <form id="add-new-form">
+                    <div class="form-group">
+                        <label for="new-question">질문 (Question)</label>
+                        <input type="text" id="new-question" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="new-sql">SQL 쿼리</label>
+                        <textarea id="new-sql" rows="4" required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="new-name">작성자 이름</label>
+                        <input type="text" id="new-name" required>
+                    </div>
+                    <button type="submit" class="btn-submit">추가</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    $(document).ready(function() {
+        let lastResult = []; // Variable to store the last result for download
+        let lastSimilarQuestions = []; // To store the results from /ask api
+        let similarQuestionsVisibleCount = 0; // For pagination
+        const SIMILAR_QUESTIONS_PAGE_SIZE = 5;
+
+        // Function to convert array of objects to CSV string
+        function arrayToCsv(data) {
+            if (data.length === 0) {
+                return '';
+            }
+            const headers = Object.keys(data[0]);
+            const csvRows = [];
+            csvRows.push(headers.join(','));
+
+            for (const row of data) {
+                const values = headers.map(header => {
+                    const escaped = ('' + row[header]).replace(/"/g, '""'); // Escape double quotes
+                    return `"${escaped}"`;
+                });
+                csvRows.push(values.join(','));
+            }
+            return csvRows.join('\n');
+        }
+
+        // Function to trigger CSV download
+        function downloadCsv(csvString) {
+            const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'query_result.csv');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Function to display SQL execution result as a table
+        function displaySqlResultTable(keys, rows) {
+             if (!rows || rows.length === 0) {
+                $('#result-display').html('<p>질문을 실행했지만 결과 데이터가 없습니다.</p>');
+                $('#download-buttons').hide();
+                return;
+            }
+            
+            lastResult = rows; // Store for CSV download
+
+            let table = '<table style="width:100%; border-collapse: collapse;"><thead><tr>';
+            keys.forEach(key => table += `<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">${key}</th>`);
+            table += '</tr></thead><tbody>';
+            
+            rows.forEach(row => {
+                table += '<tr>';
+                keys.forEach(key => table += `<td style="border: 1px solid #ddd; padding: 8px;">${row[key] === null ? 'NULL' : row[key]}</td>`);
+                table += '</tr>';
+            });
+
+            table += '</tbody></table>';
+            $('#result-display').html(table);
+            $('#download-buttons').show();
+        }
+
+        // Function to display similar questions with pagination
+        function displaySimilarQuestions(initialDisplay = false) {
+            if (initialDisplay) {
+                similarQuestionsVisibleCount = SIMILAR_QUESTIONS_PAGE_SIZE;
+            } else {
+                similarQuestionsVisibleCount += SIMILAR_QUESTIONS_PAGE_SIZE;
+            }
+
+            const dataToShow = lastSimilarQuestions.slice(0, similarQuestionsVisibleCount);
+
+            if (lastSimilarQuestions.length === 0) {
+                $('#result-display').html('<p>유사한 질문을 찾지 못했습니다. 더 구체적으로 질문해주시거나, 새로운 정답셋을 추가해보세요.</p>');
+                return;
+            }
+
+            let table = '<p>아래 질문들 중 하나를 선택하여 SQL을 확인하거나, 질문을 수정하여 다시 시도해보세요.</p>';
+            table += '<table style="width:100%; border-collapse: collapse;"><thead><tr>';
+            table += '<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">유사 질문</th>';
+            table += '<th style="border: 1px solid #ddd; padding: 8px; text-align: center; width: 80px;">유사도</th>';
+            table += '</tr></thead><tbody>';
+
+            dataToShow.forEach((item, index) => {
+                table += `<tr class="similar-question-row" data-index="${index}" style="cursor:pointer;">`;
+                table += `<td style="border: 1px solid #ddd; padding: 8px;">${item.question}</td>`;
+                table += `<td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${(1 - item.distance).toFixed(2)}</td>`;
+                table += '</tr>';
+            });
+            
+            table += '</tbody></table>';
+            
+            // Add a container for the SQL to be displayed
+            table += '<div id="sql-display-container" style="margin-top: 2rem;"></div>';
+            
+            // Add 'Load More' button if there are more items to show
+            if (lastSimilarQuestions.length > similarQuestionsVisibleCount) {
+                table += '<div style="text-align: center; margin-top: 1rem;"><button id="load-more-btn" class="btn-submit" style="background-color: #6c757d;">더보기</button></div>';
+            }
+            
+            $('#result-display').html(table);
+            $('#download-buttons').hide();
+        }
+
+        // '새로운 정답셋 추가하기' 버튼 클릭 시 폼 토글
+        $('#toggle-add-form-btn').on('click', function() {
+            $('.add-form-container').slideToggle();
+        });
+
+        // 질의 버튼 클릭 이벤트 (MOCK)
+        $('#submit-btn').on('click', function() {
+            const query = $('#query-input').val();
+            if (!query) {
+                alert('질문을 입력해주세요.');
+                return;
+            }
+            $('#result-display').html(`<p>'${query}'에 대한 유사 질문을 검색하고 있습니다...</p>`);
+            $('#download-buttons').hide();
+            
+            $.ajax({
+                url: 'http://127.0.0.1:8000/ask/',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ text: query }),
+                success: function(response) {
+                    if (response.results && response.results.length > 0) {
+                        lastSimilarQuestions = response.results; // Store full results
+                        displaySimilarQuestions(true); // Initial display
+                    } else {
+                        $('#result-display').html(`<p>${response.message || '유사한 질문을 찾지 못했습니다.'}</p>`);
+                    }
+                },
+                error: function(xhr, status, error) {
+                    const errorMsg = xhr.responseJSON ? xhr.responseJSON.detail : "질의 중 오류가 발생했습니다.";
+                    $('#result-display').html(`<p>오류: ${errorMsg}</p>`);
+                }
+            });
+        });
+
+        // Event handler for clicking on a similar question row
+        // .on()을 사용하여 동적으로 생성된 요소에 이벤트를 바인딩합니다.
+        $('#result-display').on('click', '.similar-question-row', function() {
+            const recordIndex = $(this).data('index');
+            const record = lastSimilarQuestions[recordIndex];
+            const sqlQuery = record.sql_query;
+            const questionText = record.question;
+            
+            // 모든 행의 배경색을 초기화하고 현재 클릭된 행만 강조 표시
+            $('.similar-question-row').css('background-color', '');
+            $(this).css('background-color', '#e9ecef');
+
+            // Display the SQL query in the dedicated container
+            const sqlDisplayContainer = $('#sql-display-container');
+            const sqlDisplayContent = `
+                <h4 style="margin-bottom: 0.5rem;">'${questionText}'에 대한 SQL 쿼리</h4>
+                <pre style="background-color: #333; color: #f8f8f2; padding: 1rem; border-radius: 6px; white-space: pre-wrap; word-wrap: break-word;"><code>${sqlQuery}</code></pre>
+            `;
+            sqlDisplayContainer.html(sqlDisplayContent);
+
+            // 스크롤을 SQL 표시 컨테이너로 이동
+            $('html, body').animate({
+                scrollTop: sqlDisplayContainer.offset().top - 20
+            }, 500);
+        });
+
+        // Event handler for 'Load More' button
+        $('#result-display').on('click', '#load-more-btn', function() {
+            displaySimilarQuestions(false);
+            // After re-rendering, re-apply highlighting and SQL display if an item was selected
+            const selectedIdx = $('.similar-question-row.selected').data('index');
+            if(selectedIdx !== undefined) {
+                 // Re-trigger click to keep selection and SQL visible
+                $(`.similar-question-row[data-index=${selectedIdx}]`).trigger('click');
+            }
+        });
+
+        $('#csv-download-btn').on('click', function() {
+            const csvData = arrayToCsv(lastResult);
+            downloadCsv(csvData);
+        });
+
+        // 새로운 정답셋 추가 폼 제출 이벤트
+        $('#add-new-form').on('submit', function(e) {
+            e.preventDefault(); // 폼 기본 제출 방지
+
+            const newRecord = {
+                question: $('#new-question').val(),
+                sql_query: $('#new-sql').val(),
+                name: $('#new-name').val()
+            };
+
+            if (!newRecord.question || !newRecord.sql_query || !newRecord.name) {
+                alert('모든 필드를 입력해주세요.');
+                return;
+            }
+
+            // 서버로 AJAX 요청 보내기
+            $.ajax({
+                url: 'http://127.0.0.1:8000/add-record/',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(newRecord),
+                success: function(response) {
+                    alert('성공적으로 추가되었습니다! (ID: ' + response.id + ')');
+                    // 폼 초기화 및 숨기기
+                    $('#add-new-form')[0].reset();
+                    $('.add-form-container').slideUp();
+                },
+                error: function(xhr, status, error) {
+                    const errorMsg = xhr.responseJSON ? xhr.responseJSON.detail : "알 수 없는 오류가 발생했습니다.";
+                    alert('추가 실패: ' + errorMsg);
+                }
+            });
+        });
+    });
+    </script>
+
+</body>
+</html> 
