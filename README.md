@@ -52,7 +52,6 @@ cd text2sql
 ### 2. Python 가상환경 생성 및 활성화
 ```bash
 cd text2sql-api
-python -m venv venv
 source venv/bin/activate  # macOS/Linux
 ```
 
